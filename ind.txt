@@ -1,0 +1,242 @@
+<?php
+require_once __DIR__ . '/config/connexion.php';
+require_once './config/authentification.php';
+
+verifierConnexion();
+
+// Récupération des statistiques
+try {
+    // Total donneurs
+    $stmt = $pdo->query("SELECT COUNT(*) as total FROM donneurs");
+    $total_donneurs = $stmt->fetch()['total'];
+
+    // Total dons en stock
+    $stmt = $pdo->query("SELECT COUNT(*) as total FROM dons WHERE statut = 'EN STOCK'");
+    $total_dons_stock = $stmt->fetch()['total'];
+
+    // Total centres
+    $stmt = $pdo->query("SELECT COUNT(*) as total FROM centres_collecte");
+    $total_centres = $stmt->fetch()['total'];
+
+    // Stock par groupe sanguin (CORRIGÉ)
+    $stmt = $pdo->query("
+        SELECT dn.groupe_sanguin, COUNT(*) AS quantite
+        FROM dons d
+        JOIN donneurs dn ON dn.id_donneur = d.id_donneur
+        WHERE d.statut = 'EN STOCK'
+        GROUP BY dn.groupe_sanguin
+    ");
+    $stock_par_groupe = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Alertes (besoins)
+    $stmt = $pdo->query("
+        SELECT groupe_sanguin, niveau_alerte
+        FROM besoins
+        WHERE niveau_alerte IN ('URGENT', 'CRITIQUE')
+    ");
+    $alertes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+} catch (PDOException $e) {
+    die("Erreur lors de la récupération des données : " . $e->getMessage());
+}
+?>
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Tableau de Bord</title>
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <style>
+        .sidebar {
+            min-height: 100vh;
+            background: #5a4fcf;
+        }
+        .sidebar .nav-link {
+            color: #fff;
+            padding: 12px;
+        }
+        .sidebar .nav-link.active {
+            background: rgba(255,255,255,0.2);
+        }
+        .main-content {
+            background: #f8f9fa;
+            min-height: 100vh;
+        }
+        .stat-card {
+            border-radius: 15px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container-fluid">
+<div class="row">
+
+    <!-- Sidebar -->
+    <nav class="col-md-3 col-lg-2 sidebar">
+        <div class="p-3 text-white">
+            <h4>Centre de Don</h4>
+            <small>Gestion</small>
+        </div>
+
+        <ul class="nav flex-column px-2">
+            <li class="nav-item">
+                <a class="nav-link active" href="index.php">Tableau de Bord</a>
+            </li>
+
+            <?php if ($_SESSION['role']=='ADMIN'||$_SESSION['role']=='SECRETAIRE'): ?>
+            <li class="nav-item">
+                <a class="nav-link" href="donneurs/liste_donneur.php">Donneurs</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="dons/ajout.php">Ajouter Dons</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="dons/liste.php">Lister Dons</a>
+            </li>
+            <?php endif; ?>
+
+            <?php if ($_SESSION['role']=='ADMIN'||$_SESSION['role']=='MEDECIN'): ?>
+            <li class="nav-item">
+                <a class="nav-link" href="tests.php">Tests</a>
+            </li>
+            <?php endif; ?>
+
+            <?php if ($_SESSION['role']=='ADMIN'): ?>
+            <li class="nav-item">
+                <a class="nav-link" href="utilisateurs/ajout.php">Utilisateurs</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="utilisateurs/liste.php">lister Utilisateurs</a>
+            </li>
+            <?php endif; ?>
+
+                    <!-- 🔥 TRANSFUSIONS ajoutée -->
+            <?php if ($_SESSION['role']=='ADMIN' || $_SESSION['role']=='SECRETAIRE' || $_SESSION['role']=='MEDECIN'): ?>
+            <li class="nav-item">
+                <a class="nav-link" href="transfusions/ajout.php">Ajouter Transfusion</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="transfusions/liste.php">Liste des Transfusions</a>
+            </li>
+            <?php endif; ?>
+
+            <!-- 📦 STOCK ajouté -->
+            <?php if ($_SESSION['role']=='ADMIN' || $_SESSION['role']=='MEDECIN'): ?>
+            <li class="nav-item">
+                <a class="nav-link" href="stock/listeStock.php">Stock Sanguin</a>
+            </li>
+            <?php endif; ?>
+
+            <li class="nav-item mt-4">
+                <a class="nav-link text-warning" href="logout.php">Déconnexion</a>
+            </li>
+        </ul>
+    </nav>
+
+    <!-- Contenu principal -->
+    <main class="col-md-9 col-lg-10 main-content p-4">
+
+        <h1 class="mb-4">Tableau de Bord</h1>
+
+        <!-- Statistiques clés -->
+        <div class="row mb-4">
+
+            <div class="col-md-4">
+                <div class="card bg-primary text-white stat-card">
+                    <div class="card-body">
+                        <h5>Donneurs</h5>
+                        <h2><?= $total_donneurs ?></h2>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <div class="card bg-success text-white stat-card">
+                    <div class="card-body">
+                        <h5>Dons en Stock</h5>
+                        <h2><?= $total_dons_stock ?></h2>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <div class="card bg-info text-white stat-card">
+                    <div class="card-body">
+                        <h5>Centres</h5>
+                        <h2><?= $total_centres ?></h2>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Stock par groupe sanguin -->
+        <div class="card mb-4">
+            <div class="card-header bg-white">
+                <h5>Stock par Groupe Sanguin</h5>
+            </div>
+
+            <div class="card-body">
+
+                <table class="table table-bordered">
+                    <thead>
+                        <tr>
+                            <th>Groupe</th>
+                            <th>Quantité</th>
+                        </tr>
+                    </thead>
+
+                    <tbody>
+                    <?php
+                    $groupes = ['A','B','O','AB'];
+
+                    // initialisation
+                    $stock = ['A'=>0,'B'=>0,'O'=>0,'AB'=>0];
+
+                    foreach ($stock_par_groupe as $s) {
+                        $stock[$s['groupe_sanguin']] = $s['quantite'];
+                    }
+
+                    foreach ($groupes as $g):
+                    ?>
+                        <tr>
+                            <td><?= $g ?></td>
+                            <td><?= $stock[$g] ?> unités</td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+
+                </table>
+
+            </div>
+        </div>
+
+        <!-- Alertes -->
+        <div class="card mb-4">
+            <div class="card-header bg-white">
+                <h5>Alertes</h5>
+            </div>
+            <div class="card-body">
+                <?php if (empty($alertes)): ?>
+                    <div class="alert alert-success">Aucune alerte.</div>
+                <?php else: ?>
+                    <?php foreach ($alertes as $a): ?>
+                        <div class="alert alert-danger">
+                            Groupe <?= $a['groupe_sanguin'] ?> : <?= $a['niveau_alerte'] ?>
+                        </div>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+            </div>
+        </div>
+
+    </main>
+
+</div>
+</div>
+
+</body>
+</html>
